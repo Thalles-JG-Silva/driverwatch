@@ -1,5 +1,5 @@
 name: driverwatch
-description: "Protótipo de monitoramento de motorista"
+description: "Protótipo de monitoramento de motorista com IA"
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -11,13 +11,21 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # Dependências principais
+  # Câmera e permissões
   camera: ^0.10.5
   permission_handler: ^11.0.0
-  cupertino_icons: ^1.0.6
 
-  # sensors_plus foi removido para evitar travamentos no Linux
-  # Se precisar dele no Android/iOS futuramente, adicione novamente
+  # ML Kit para detecção facial (funciona no Android, iOS e Web)
+  google_ml_kit: ^0.16.0
+
+  # Alarme sonoro (toque nativo do sistema)
+  flutter_ringtone_player: ^3.2.0
+
+  # Vibração (opcional, para alerta tátil)
+  vibration: ^1.8.0
+
+  # Ícones
+  cupertino_icons: ^1.0.6
 
 dev_dependencies:
   flutter_test:

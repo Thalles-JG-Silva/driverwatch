@@ -16,7 +16,7 @@ class DriverWatchApp extends StatelessWidget {
         primaryColor: Colors.blue,
         scaffoldBackgroundColor: Colors.black,
         appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.black,
+          backgroundColor: Colors.transparent,
           elevation: 0,
         ),
       ),
