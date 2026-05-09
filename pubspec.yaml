@@ -1,0 +1,28 @@
+name: driverwatch
+description: "Protótipo de monitoramento de motorista"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Dependências principais
+  camera: ^0.10.5
+  permission_handler: ^11.0.0
+  cupertino_icons: ^1.0.6
+
+  # sensors_plus foi removido para evitar travamentos no Linux
+  # Se precisar dele no Android/iOS futuramente, adicione novamente
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
