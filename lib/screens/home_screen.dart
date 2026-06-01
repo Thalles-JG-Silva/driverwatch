@@ -280,14 +280,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [_statusColor.withOpacity(0.2), _statusColor.withOpacity(0.05)],
+          colors: [_statusColor.withValues(alpha: 0.2), _statusColor.withValues(alpha: 0.05)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(25),
         border: Border.all(color: _statusColor, width: 2),
         boxShadow: [
-          BoxShadow(color: _statusColor.withOpacity(0.3), blurRadius: 10, spreadRadius: 2),
+          BoxShadow(color: _statusColor.withValues(alpha: 0.3), blurRadius: 10, spreadRadius: 2),
         ],
       ),
       child: Column(
@@ -334,7 +334,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(25),
         border: Border.all(color: Colors.blueAccent, width: 2),
-        boxShadow: [BoxShadow(color: Colors.blueAccent.withOpacity(0.3), blurRadius: 15)],
+        boxShadow: [BoxShadow(color: Colors.blueAccent.withValues(alpha: 0.3), blurRadius: 15)],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(23),
@@ -348,7 +348,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.6),
+       color: Colors.black.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(25),
         border: Border.all(color: Colors.white24),
       ),
@@ -384,9 +384,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: color.withValues(alpha:0.1),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withOpacity(0.5)),
+          border: Border.all(color: color.withValues(alpha:0.5)),
         ),
         child: Column(
           children: [
