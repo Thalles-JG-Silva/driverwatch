@@ -1,9 +1,16 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart'; 
+import 'package:sensors_plus/sensors_plus.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:vibration/vibration.dart';
+import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,211 +22,445 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   CameraController? _cameraController;
   List<CameraDescription>? _cameras;
+  FaceDetector? _faceDetector;
+  StreamSubscription<UserAccelerometerEvent>? _accelerometerSubscription;
+  late FlutterTts _flutterTts;
+  
   bool _isCameraReady = false;
-
   bool _isMonitoring = true;
-  String _statusMessage = "Iniciando câmera...";
+  bool _isProcessingImage = false;
+
+  String _statusMessage = "Iniciando sistema...";
   Color _statusColor = Colors.yellow;
 
-  // Simulação de sonolência e distração
-  int _closedEyesCount = 0;
-  int _lookAwayCount = 0;
-  bool _alarmTriggered = false;
-  Timer? _alarmTimer;
-  Timer? _simulationTimer;
+  // Controle de Tempo REAL (Segundos)
+  DateTime? _drowsinessStartTime; 
+  DateTime? _distractionStartTime;
+  bool _hasSpokenDrowsy = false;
+  bool _hasSpokenDistracted = false;
 
-  String _drowsinessStatus = "Monitorando...";
-  String _distractionStatus = "Monitorando...";
+  String _drowsinessStatus = "Iniciando...";
+  String _distractionStatus = "Iniciando...";
   Color _drowsinessColor = Colors.green;
   Color _distractionColor = Colors.green;
 
-  double _gForce = 0.0;
+  // Variáveis do Alarme Comum
+  bool _alarmTriggered = false;
+  Timer? _vibrationTimer; 
+
+  // Variáveis de Colisão e Emergência
+  double _gForce = 1.0; 
+  bool _isEmergencyMode = false;
+  int _collisionCountdown = 30;
+  Timer? _emergencyTimer;
+  String _emergencyNumber = "192"; 
+
+  // Configuração de Alerta
+  String _selectedSoundType = "Alarme"; 
+  final List<String> _soundOptions = ["Notificação", "Alarme", "Toque"];
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _initCamera();
-    _startSimulation(); // Simula os eventos de detecção
+    
+    _faceDetector = FaceDetector(
+      options: FaceDetectorOptions(
+        enableClassification: true,
+        enableLandmarks: true,
+      ),
+    );
+
+    _initTts();
+    _initHardware();
+  }
+
+  void _initTts() {
+    _flutterTts = FlutterTts();
+    _flutterTts.setLanguage("pt-BR");
+    _flutterTts.setSpeechRate(0.5); 
+    _flutterTts.setPitch(1.0);
+  }
+
+  Future<void> _speakAlert(String text) async {
+    await _flutterTts.stop();
+    await _flutterTts.speak(text);
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _startCamera();
-    } else if (state == AppLifecycleState.paused) {
-      _stopCamera();
+    if (_cameraController == null || !_cameraController!.value.isInitialized) return;
+    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
+      _cameraController?.stopImageStream();
+      _accelerometerSubscription?.pause();
+    } else if (state == AppLifecycleState.resumed) {
+      _startLiveStream();
+      _accelerometerSubscription?.resume();
     }
   }
 
-  Future<void> _initCamera() async {
-    await Permission.camera.request();
+  Future<void> _initHardware() async {
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.camera,
+      Permission.phone, 
+    ].request();
 
-    _cameras = await availableCameras();
-    if (_cameras == null || _cameras!.isEmpty) {
+    if (statuses[Permission.camera]!.isDenied) {
       setState(() {
-        _statusMessage = "Câmera não encontrada";
+        _statusMessage = "Permissão da câmera negada";
         _statusColor = Colors.red;
       });
       return;
     }
 
-    _cameraController = CameraController(_cameras![0], ResolutionPreset.medium);
-    await _cameraController!.initialize();
-    await _startCamera();
+    _initAccelerometer();
 
-    if (mounted) {
+    _cameras = await availableCameras();
+    if (_cameras == null || _cameras!.isEmpty) {
       setState(() {
-        _isCameraReady = true;
+        _statusMessage = "Nenhuma câmera encontrada";
+        _statusColor = Colors.red;
+      });
+      return;
+    }
+
+    CameraDescription frontalCamera = _cameras!.firstWhere(
+      (camera) => camera.lensDirection == CameraLensDirection.front,
+      orElse: () => _cameras![0],
+    );
+
+    _cameraController = CameraController(
+      frontalCamera, 
+      ResolutionPreset.low, 
+      enableAudio: false,
+      imageFormatGroup: Platform.isAndroid 
+          ? ImageFormatGroup.nv21 
+          : ImageFormatGroup.bgra8888,
+    );
+
+    try {
+      await _cameraController!.initialize();
+      _startLiveStream();
+      
+      if (mounted) {
+        setState(() {
+          _isCameraReady = true;
+          _statusMessage = "Sistema Ativo e Monitorando";
+          _statusColor = Colors.green;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _statusMessage = "Erro ao iniciar câmera";
+        _statusColor = Colors.red;
+      });
+    }
+  }
+
+  void _startLiveStream() {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) return;
+
+    _cameraController!.startImageStream((CameraImage image) async {
+      if (_isProcessingImage || !_isMonitoring || _isEmergencyMode) return;
+      _isProcessingImage = true;
+
+      try {
+        final WriteBuffer allBytes = WriteBuffer();
+        for (final Plane plane in image.planes) {
+          allBytes.putUint8List(plane.bytes);
+        }
+        final Uint8List bytes = allBytes.done().buffer.asUint8List();
+
+        final metadata = InputImageMetadata(
+          size: Size(image.width.toDouble(), image.height.toDouble()),
+          rotation: InputImageRotationValue.fromRawValue(270) ?? InputImageRotation.values.first, 
+          format: InputImageFormatValue.fromRawValue(image.format.raw) ?? InputImageFormat.nv21,
+          bytesPerRow: image.planes[0].bytesPerRow,
+        );
+
+        final inputImage = InputImage.fromBytes(bytes: bytes, metadata: metadata);
+        final List<Face> faces = await _faceDetector!.processImage(inputImage);
+
+        _processFaces(faces);
+      } catch (e) {
+        debugPrint("Erro no frame: $e");
+      } finally {
+        _isProcessingImage = false;
+      }
+    });
+  }
+
+  void _processFaces(List<Face> faces) {
+    if (!mounted || !_isMonitoring || _isEmergencyMode) return;
+
+    if (faces.isEmpty) {
+      setState(() {
+        _drowsinessStatus = "Rosto Ausente";
+        _drowsinessColor = Colors.orange;
+        _distractionStatus = "Rosto Ausente";
+        _distractionColor = Colors.orange;
+        _distractionStartTime = null; 
+        _drowsinessStartTime = null;
+      });
+      return;
+    }
+
+    final Face face = faces.first;
+
+    if (face.leftEyeOpenProbability != null && face.rightEyeOpenProbability != null) {
+      double eyeOpenAvg = (face.leftEyeOpenProbability! + face.rightEyeOpenProbability!) / 2;
+
+      setState(() {
+        if (eyeOpenAvg < 0.20) {
+          _drowsinessStartTime ??= DateTime.now(); 
+          _drowsinessStatus = "Olhos Fechados";
+          _drowsinessColor = Colors.red;
+        } else {
+          _drowsinessStartTime = null; 
+          _drowsinessStatus = "Olhos Abertos";
+          _drowsinessColor = Colors.green;
+          _hasSpokenDrowsy = false; 
+        }
+      });
+    }
+
+    if (face.headEulerAngleY != null || face.headEulerAngleX != null) {
+      double yaw = face.headEulerAngleY!;   
+      double pitch = face.headEulerAngleX!; 
+
+      setState(() {
+        if (yaw.abs() > 22.0 || pitch.abs() > 18.0) {
+          _distractionStartTime ??= DateTime.now(); 
+          _distractionStatus = "Desviou o Olhar!";
+          _distractionColor = Colors.red;
+        } else {
+          _distractionStartTime = null; 
+          _distractionStatus = "Atento à Via";
+          _distractionColor = Colors.green;
+          _hasSpokenDistracted = false; 
+        }
+      });
+    }
+
+    _checkThresholds();
+  }
+
+  void _initAccelerometer() {
+    _accelerometerSubscription = userAccelerometerEventStream().listen((UserAccelerometerEvent event) {
+      if (!mounted || !_isMonitoring || _isEmergencyMode) return;
+
+      double magnitude = math.sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
+      double calculatedG = 1.0 + (magnitude / 9.80665);
+
+      setState(() {
+        _gForce = calculatedG;
+
+        if (_gForce > 4.5 && !_isEmergencyMode) { 
+          _triggerCollisionEmergency();
+        }
+      });
+    });
+  }
+
+  void _triggerCollisionEmergency() {
+    setState(() {
+      _isEmergencyMode = true;
+      _collisionCountdown = 30;
+      _statusMessage = "💥 COLISÃO DETECTADA!";
+      _statusColor = Colors.red;
+    });
+
+    _stopAlarm();
+
+    String numeroFalado = _emergencyNumber.split('').join(' ');
+    _speakAlert("Colisão detectada. Em 30 segundos será realizada a ligação de emergência para o número $numeroFalado.");
+    
+    _playSelectedSystemSound();
+
+    _emergencyTimer?.cancel();
+    _emergencyTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      
+      setState(() {
+        if (_collisionCountdown > 0) {
+          _collisionCountdown--;
+          _statusMessage = "EMERGÊNCIA EM $_collisionCountdown s";
+          Vibration.vibrate(duration: 500, intensities: [255]);
+        } else {
+          timer.cancel();
+          _makeEmergencyCall();
+        }
+      });
+    });
+  }
+
+  Future<void> _makeEmergencyCall() async {
+    _stopAlarm();
+    
+    setState(() {
+      _statusMessage = "LIGANDO PARA $_emergencyNumber...";
+    });
+
+    bool? callSuccess = await FlutterPhoneDirectCaller.callNumber(_emergencyNumber);
+
+    if (callSuccess == null || !callSuccess) {
+      _speakAlert("Não foi possível realizar a chamada automaticamente. Verifique as permissões de ligação.");
+      setState(() {
+        _statusMessage = "FALHA NA LIGAÇÃO!";
+      });
+    }
+  }
+
+  void _cancelEmergency() {
+    _emergencyTimer?.cancel();
+    _stopAlarm();
+    
+    _speakAlert("Emergência cancelada. Retomando monitoramento.");
+    
+    setState(() {
+      _isEmergencyMode = false;
+      _statusMessage = "Monitorando...";
+      _statusColor = Colors.green;
+      _gForce = 1.0;
+    });
+  }
+
+  void _showEmergencyConfigDialog() {
+    TextEditingController controller = TextEditingController(text: _emergencyNumber);
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF203A43),
+          title: const Text("Número de Emergência", style: TextStyle(color: Colors.white)),
+          content: TextField(
+            controller: controller,
+            keyboardType: TextInputType.phone,
+            style: const TextStyle(color: Colors.white),
+            decoration: const InputDecoration(
+              hintText: "Ex: 192, 190...",
+              hintStyle: TextStyle(color: Colors.white54),
+              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent)),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancelar", style: TextStyle(color: Colors.red)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                setState(() {
+                  _emergencyNumber = controller.text;
+                });
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("Número atualizado para $_emergencyNumber")),
+                );
+              },
+              child: const Text("Salvar"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _checkThresholds() {
+    bool isDrowsyCritical = false;
+    bool isDistractedCritical = false;
+
+    if (_drowsinessStartTime != null) {
+      int elapsedDrowsy = DateTime.now().difference(_drowsinessStartTime!).inSeconds;
+      
+      if (elapsedDrowsy >= 5 && !_hasSpokenDrowsy) {
+        _hasSpokenDrowsy = true;
+        _speakAlert("Alerta de sono detectado. Pare o veículo em local seguro e descanse imediatamente.");
+      }
+      if (elapsedDrowsy >= 10) {
+        isDrowsyCritical = true;
+      }
+    }
+
+    if (_distractionStartTime != null) {
+      int elapsedDistracted = DateTime.now().difference(_distractionStartTime!).inSeconds;
+      
+      if (elapsedDistracted >= 5 && !_hasSpokenDistracted) {
+        _hasSpokenDistracted = true;
+        _speakAlert("Alerta de distração. Por favor, mantenha os olhos na pista.");
+      }
+      if (elapsedDistracted >= 10) {
+        isDistractedCritical = true;
+      }
+    }
+
+    if ((isDrowsyCritical || isDistractedCritical) && !_alarmTriggered) {
+      _triggerStandardAlarm();
+    } else if (!isDrowsyCritical && !isDistractedCritical && _alarmTriggered) {
+      _stopAlarm();
+    }
+  }
+
+  void _triggerStandardAlarm() {
+    if (_alarmTriggered) return;
+    _alarmTriggered = true;
+
+    setState(() {
+      _statusMessage = "🚨 ALERTA MÁXIMO: FADIGA/DISTRAÇÃO!";
+      _statusColor = Colors.red;
+    });
+
+    _playSelectedSystemSound();
+
+    _vibrationTimer?.cancel();
+    _vibrationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      Vibration.vibrate(pattern: [300, 200, 300], intensities: [1, 255, 1]);
+    });
+  }
+
+  void _playSelectedSystemSound() {
+    if (_selectedSoundType == "Alarme") {
+      FlutterRingtonePlayer().play(android: AndroidSounds.alarm, ios: IosSounds.alarm, looping: true, volume: 1.0, asAlarm: true);
+    } else if (_selectedSoundType == "Toque") {
+      FlutterRingtonePlayer().play(android: AndroidSounds.ringtone, ios: IosSounds.glass, looping: true, volume: 1.0, asAlarm: true);
+    } else {
+      FlutterRingtonePlayer().play(android: AndroidSounds.notification, ios: IosSounds.triTone, looping: true, volume: 1.0, asAlarm: true);
+    }
+  }
+
+  void _stopAlarm() {
+    _vibrationTimer?.cancel();
+    _vibrationTimer = null;
+    _alarmTriggered = false;
+    
+    Vibration.cancel();
+    FlutterRingtonePlayer().stop(); 
+    
+    if (!_isEmergencyMode) {
+      setState(() {
         _statusMessage = "Monitorando...";
         _statusColor = Colors.green;
       });
     }
   }
 
-  Future<void> _startCamera() async {
-    if (_cameraController != null && !_cameraController!.value.isInitialized) {
-      await _cameraController!.initialize();
-    }
-  }
-
-  Future<void> _stopCamera() async {
-    await _cameraController?.dispose();
-  }
-
-  // Simulação aleatória de sonolência/distração (para demonstração do TCC)
-  void _startSimulation() {
-    _simulationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!_isMonitoring) return;
-
-      // Simula variação da força G
-      setState(() {
-        _gForce = (_gForce + (DateTime.now().millisecondsSinceEpoch % 3 - 1) * 0.2)
-            .clamp(0.0, 5.0);
-      });
-
-      // A cada 12 segundos, simula um evento de risco (apenas para demonstração)
-      final int second = DateTime.now().second;
-      if (second % 12 == 0 && second != 0) {
-        _simulateRisk();
-      }
-    });
-  }
-
-  void _simulateRisk() {
-    // Alterna entre sonolência e distração
-    bool isDrowsy = DateTime.now().millisecondsSinceEpoch % 2 == 0;
-
-    if (isDrowsy) {
-      _closedEyesCount = 6;
-      setState(() {
-        _drowsinessStatus = "Olhos fechados!";
-        _drowsinessColor = Colors.red;
-      });
-    } else {
-      _lookAwayCount = 4;
-      setState(() {
-        _distractionStatus = "Desviou o olhar!";
-        _distractionColor = Colors.red;
-      });
-    }
-    _checkAndTriggerAlarm();
-  }
-
-  void _checkAndTriggerAlarm() {
-    bool drowsy = _closedEyesCount >= 5;
-    bool distracted = _lookAwayCount >= 3;
-
-    if ((drowsy || distracted) && !_alarmTriggered) {
-      _triggerAlarm();
-    } else if (!drowsy && !distracted && _alarmTriggered) {
-      _stopAlarm();
-    }
-
-    // Reduz contadores gradualmente quando não há risco
-    if (!drowsy && _closedEyesCount > 0) {
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted) {
-          setState(() {
-            _closedEyesCount = (_closedEyesCount - 1).clamp(0, 10);
-            if (_closedEyesCount == 0 && _drowsinessStatus != "Monitorando...") {
-              _drowsinessStatus = "Olhos abertos";
-              _drowsinessColor = Colors.green;
-            }
-          });
-        }
-      });
-    }
-    if (!distracted && _lookAwayCount > 0) {
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted) {
-          setState(() {
-            _lookAwayCount = (_lookAwayCount - 1).clamp(0, 10);
-            if (_lookAwayCount == 0 && _distractionStatus != "Monitorando...") {
-              _distractionStatus = "Atento";
-              _distractionColor = Colors.green;
-            }
-          });
-        }
-      });
-    }
-  }
-
-  void _triggerAlarm() {
-    if (_alarmTriggered) return;
-    _alarmTriggered = true;
-    setState(() {
-      _statusMessage = "ALERTA! Motorista perigoso!";
-      _statusColor = Colors.red;
-    });
-
-    // Tocar alarme repetido
-    _alarmTimer?.cancel();
-    _alarmTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
-      FlutterRingtonePlayer.playNotification();
-      Vibration.vibrate(pattern: [500, 500, 500]);
-    });
-
-    // Reset automático após 8 segundos
-    Future.delayed(const Duration(seconds: 8), () {
-      if (mounted && _isMonitoring) {
-        _closedEyesCount = 0;
-        _lookAwayCount = 0;
-        _stopAlarm();
-        setState(() {
-          _statusMessage = "Monitorando...";
-          _statusColor = Colors.green;
-          _drowsinessStatus = "Olhos abertos";
-          _drowsinessColor = Colors.green;
-          _distractionStatus = "Atento";
-          _distractionColor = Colors.green;
-        });
-      }
-    });
-  }
-
-  void _stopAlarm() {
-    _alarmTimer?.cancel();
-    _alarmTimer = null;
-    _alarmTriggered = false;
-    Vibration.cancel();
-  }
-
   @override
   void dispose() {
     _stopAlarm();
-    _simulationTimer?.cancel();
+    _emergencyTimer?.cancel();
     _cameraController?.dispose();
+    _faceDetector?.close();
+    _flutterTts.stop();
+    _accelerometerSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
-  // ------------------ UI RENOVADA E RESPONSIVA ------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('DriverWatch - Segurança Inteligente'),
+        title: const Text('DriverWatch - Segurança Ativa'),
         backgroundColor: Colors.transparent,
         elevation: 0,
         flexibleSpace: Container(
@@ -233,8 +474,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.history),
-            onPressed: () => _showHistorySnackbar(),
+            icon: const Icon(Icons.settings_phone, color: Colors.white),
+            tooltip: "Configurar Número de Emergência",
+            onPressed: _isEmergencyMode ? null : _showEmergencyConfigDialog,
           ),
         ],
       ),
@@ -256,10 +498,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     child: Column(
                       children: [
                         _buildStatusCard(),
-                        _buildCameraPreview(),
-                        _buildMetricsPanel(),
+                        if (!_isEmergencyMode) _buildSoundPickerCard(), 
+                        if (!_isEmergencyMode) _buildCameraPreview(),
+                        if (!_isEmergencyMode) _buildMetricsPanel(),
                         const Spacer(),
-                        _buildControlButton(),
+                        _isEmergencyMode ? _buildEmergencyCancelButton() : _buildControlButton(),
                         const SizedBox(height: 20),
                       ],
                     ),
@@ -276,7 +519,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Widget _buildStatusCard() {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
-      margin: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(left: 16, right: 16, top: 16),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -285,28 +528,86 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(25),
-        border: Border.all(color: _statusColor, width: 2),
+        border: Border.all(color: _statusColor, width: _isEmergencyMode ? 5 : 2),
         boxShadow: [
           BoxShadow(color: _statusColor.withValues(alpha: 0.3), blurRadius: 10, spreadRadius: 2),
         ],
       ),
       child: Column(
         children: [
-          Icon(_isMonitoring ? Icons.verified_user : Icons.warning_amber,
-              color: _statusColor, size: 50),
+          Icon(
+            _isEmergencyMode ? Icons.car_crash : (_isMonitoring ? Icons.verified_user : Icons.warning_amber),
+            color: _statusColor, size: _isEmergencyMode ? 80 : 50
+          ),
           const SizedBox(height: 10),
           Text(_statusMessage,
-              style: TextStyle(color: _statusColor, fontSize: 20, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                color: _statusColor, 
+                fontSize: _isEmergencyMode ? 24 : 16, 
+                fontWeight: FontWeight.bold
+              ),
               textAlign: TextAlign.center),
           const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            decoration: BoxDecoration(
-              color: _statusColor,
-              borderRadius: BorderRadius.circular(30),
+          if (!_isEmergencyMode)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              decoration: BoxDecoration(
+                color: _statusColor,
+                borderRadius: BorderRadius.circular(30),
+              ),
+              child: Text(_isMonitoring ? "MONITORAMENTO ATIVO" : "SISTEMA PAUSADO",
+                  style: const TextStyle(
+                    color: Colors.black, 
+                    fontWeight: FontWeight.bold, 
+                    fontSize: 12)),
             ),
-            child: Text(_isMonitoring ? "ATIVO" : "PAUSADO",
-                style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSoundPickerCard() {
+    return Container(
+      margin: const EdgeInsets.only(left: 16, right: 16, top: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.audiotrack, color: Colors.blueAccent, size: 20),
+              SizedBox(width: 8),
+              Text("Som do Alerta:", style: TextStyle(
+                color: Colors.white, 
+                fontSize: 13, 
+                fontWeight: FontWeight.w500)),
+            ],
+          ),
+          DropdownButton<String>(
+            value: _selectedSoundType,
+            dropdownColor: const Color(0xFF203A43),
+            icon: const Icon(Icons.arrow_drop_down, color: Colors.blueAccent),
+            underline: Container(),
+            style: const TextStyle(
+              color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 13),
+            onChanged: (String? newValue) {
+              if (newValue != null) {
+                setState(() {
+                  _selectedSoundType = newValue;
+                });
+              }
+            },
+            items: _soundOptions.map<DropdownMenuItem<String>>((String value) {
+              return DropdownMenuItem<String>(
+                value: value,
+                child: Text(value),
+              );
+            }).toList(),
           ),
         ],
       ),
@@ -317,24 +618,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!_isCameraReady || _cameraController == null || !_cameraController!.value.isInitialized) {
       return Container(
         margin: const EdgeInsets.all(16),
-        height: 250,
+        height: 220,
         width: double.infinity,
         decoration: BoxDecoration(
           color: Colors.grey[900],
           borderRadius: BorderRadius.circular(25),
-          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 4))],
         ),
         child: const Center(child: CircularProgressIndicator()),
       );
     }
     return Container(
       margin: const EdgeInsets.all(16),
-      height: 280,
+      height: 240,
       width: double.infinity,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(25),
         border: Border.all(color: Colors.blueAccent, width: 2),
-        boxShadow: [BoxShadow(color: Colors.blueAccent.withValues(alpha: 0.3), blurRadius: 15)],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(23),
@@ -348,30 +647,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-       color: Colors.black.withValues(alpha: 0.6),
+        color: Colors.black.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(25),
         border: Border.all(color: Colors.white24),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("📊 ANÁLISE EM TEMPO REAL",
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+          const Text("📊 DISPOSITIVO DE BORDA - TELEMETRIA",
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
           const SizedBox(height: 12),
           Row(
             children: [
-              _buildMetricItem(Icons.visibility, "Olhos", _drowsinessStatus, _drowsinessColor),
-              const SizedBox(width: 20),
-              _buildMetricItem(Icons.headset_off, "Distração", _distractionStatus, _distractionColor),
+              _buildMetricItem(Icons.visibility, "Monitor de Sono", _drowsinessStatus, _drowsinessColor),
+              const SizedBox(width: 16),
+              _buildMetricItem(Icons.face, "Monitor de Atenção", _distractionStatus, _distractionColor),
             ],
           ),
           const SizedBox(height: 12),
           Row(
             children: [
-              _buildMetricItem(Icons.speed, "G-Force", "${_gForce.toStringAsFixed(1)} G", Colors.cyan),
-              const SizedBox(width: 20),
-              _buildMetricItem(Icons.timeline, "Status", _isMonitoring ? "ATIVO" : "PAUSADO",
+              _buildMetricItem(Icons.av_timer, "Sensor Inercial", "${_gForce.toStringAsFixed(2)} G", Colors.cyan),
+              const SizedBox(width: 16),
+              // 👇 AQUI ESTÁ A CORREÇÃO DO GLITCH VISUAL 👇
+              _buildMetricItem(Icons.g_mobiledata, "Status", _isMonitoring ? "Processando..." : "Aguardando...",
                   _isMonitoring ? Colors.green : Colors.orange),
+              // 👆 AQUI ESTÁ A CORREÇÃO DO GLITCH VISUAL 👆
             ],
           ),
         ],
@@ -384,18 +685,36 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          color: color.withValues(alpha:0.1),
+          color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withValues(alpha:0.5)),
+          border: Border.all(color: color.withValues(alpha: 0.5)),
         ),
         child: Column(
           children: [
-            Icon(icon, color: color, size: 28),
+            Icon(icon, color: color, size: 24),
             const SizedBox(height: 6),
-            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
             Text(value,
-                style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 14)),
+                style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12), textAlign: TextAlign.center),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmergencyCancelButton() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: ElevatedButton.icon(
+        onPressed: _cancelEmergency,
+        icon: const Icon(Icons.thumb_up, size: 40),
+        label: const Text("ESTOU BEM\nCANCELAR LIGAÇÃO", textAlign: TextAlign.center, style: TextStyle(fontSize: 20)),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.green[600],
+          foregroundColor: Colors.white,
+          minimumSize: const Size(double.infinity, 120),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          elevation: 10,
         ),
       ),
     );
@@ -411,42 +730,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             if (_isMonitoring) {
               _statusMessage = "Monitorando...";
               _statusColor = Colors.green;
-              _closedEyesCount = 0;
-              _lookAwayCount = 0;
+              _drowsinessStartTime = null;
+              _distractionStartTime = null;
               _stopAlarm();
             } else {
-              _statusMessage = "Monitoramento pausado";
+              _statusMessage = "Monitoramento suspenso";
               _statusColor = Colors.orange;
               _stopAlarm();
+              _drowsinessStatus = "Pausado";
+              _distractionStatus = "Pausado";
+              _distractionStartTime = null;
+              _drowsinessStartTime = null;
             }
           });
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(_isMonitoring ? "Monitoramento iniciado" : "Monitoramento pausado"),
-              duration: const Duration(seconds: 2),
-              backgroundColor: _isMonitoring ? Colors.green : Colors.orange,
-            ),
-          );
         },
-        icon: Icon(_isMonitoring ? Icons.stop_circle : Icons.play_circle, size: 32),
-        label: Text(
-          _isMonitoring ? "PARAR MONITORAMENTO" : "INICIAR MONITORAMENTO",
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
+        icon: Icon(_isMonitoring ? Icons.pause_circle_filled : Icons.play_circle_filled, size: 30),
+        label: Text(_isMonitoring ? "PAUSAR " : "RETOMAR "),
         style: ElevatedButton.styleFrom(
-          backgroundColor: _isMonitoring ? Colors.red : Colors.green,
+          backgroundColor: _isMonitoring ? Colors.red[700] : Colors.green[700],
           foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 18),
+          padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(40)),
-          elevation: 8,
         ),
       ),
-    );
-  }
-
-  void _showHistorySnackbar() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Histórico: em desenvolvimento para a próxima versão do TCC")),
     );
   }
 }
