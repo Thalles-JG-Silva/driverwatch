@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // PACOTE NECESSÁRIO PARA A PONTE NATIVA
 import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart'; 
@@ -11,6 +12,7 @@ import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:vibration/vibration.dart';
 import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
+import 'package:simple_pip_mode/simple_pip.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -20,6 +22,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  // 👇 CANAL DE COMUNICAÇÃO NATIVA COM O KOTLIN 👇
+  static const platform = MethodChannel('com.example.driverwatch/emergency');
+
   CameraController? _cameraController;
   List<CameraDescription>? _cameras;
   FaceDetector? _faceDetector;
@@ -33,7 +38,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String _statusMessage = "Iniciando sistema...";
   Color _statusColor = Colors.yellow;
 
-  // Controle de Tempo REAL (Segundos)
   DateTime? _drowsinessStartTime; 
   DateTime? _distractionStartTime;
   bool _hasSpokenDrowsy = false;
@@ -44,18 +48,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Color _drowsinessColor = Colors.green;
   Color _distractionColor = Colors.green;
 
-  // Variáveis do Alarme Comum
   bool _alarmTriggered = false;
   Timer? _vibrationTimer; 
 
-  // Variáveis de Colisão e Emergência
   double _gForce = 1.0; 
   bool _isEmergencyMode = false;
   int _collisionCountdown = 30;
   Timer? _emergencyTimer;
   String _emergencyNumber = "192"; 
 
-  // Configuração de Alerta
   String _selectedSoundType = "Alarme"; 
   final List<String> _soundOptions = ["Notificação", "Alarme", "Toque"];
 
@@ -73,6 +74,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     _initTts();
     _initHardware();
+
+    try {
+      SimplePip().setAutoPipMode();
+    } catch (e) {
+      debugPrint("Auto PiP não suportado");
+    }
   }
 
   void _initTts() {
@@ -90,9 +97,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (_cameraController == null || !_cameraController!.value.isInitialized) return;
+    
     if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
-      _cameraController?.stopImageStream();
-      _accelerometerSubscription?.pause();
+      SimplePip.isPipActivated.then((isPip) {
+        if (!isPip) {
+          _cameraController?.stopImageStream();
+          _accelerometerSubscription?.pause();
+        }
+      });
     } else if (state == AppLifecycleState.resumed) {
       _startLiveStream();
       _accelerometerSubscription?.resume();
@@ -159,6 +171,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _startLiveStream() {
     if (_cameraController == null || !_cameraController!.value.isInitialized) return;
+    if (_cameraController!.value.isStreamingImages) return; 
 
     _cameraController!.startImageStream((CameraImage image) async {
       if (_isProcessingImage || !_isMonitoring || _isEmergencyMode) return;
@@ -263,6 +276,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _triggerCollisionEmergency() {
+    // 👇 GATILHO DA PONTE NATIVA: PUXA O APP PARA A TELA CHEIA 👇
+    try {
+      platform.invokeMethod('bringToFront');
+    } catch (e) {
+      debugPrint("Erro ao maximizar tela: $e");
+    }
+
     setState(() {
       _isEmergencyMode = true;
       _collisionCountdown = 30;
@@ -373,11 +393,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (_drowsinessStartTime != null) {
       int elapsedDrowsy = DateTime.now().difference(_drowsinessStartTime!).inSeconds;
       
-      if (elapsedDrowsy >= 5 && !_hasSpokenDrowsy) {
+      if (elapsedDrowsy >= 1 && !_hasSpokenDrowsy) {
         _hasSpokenDrowsy = true;
         _speakAlert("Alerta de sono detectado. Pare o veículo em local seguro e descanse imediatamente.");
       }
-      if (elapsedDrowsy >= 10) {
+      if (elapsedDrowsy >= 3) {
         isDrowsyCritical = true;
       }
     }
@@ -385,11 +405,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (_distractionStartTime != null) {
       int elapsedDistracted = DateTime.now().difference(_distractionStartTime!).inSeconds;
       
-      if (elapsedDistracted >= 5 && !_hasSpokenDistracted) {
+      if (elapsedDistracted >= 2 && !_hasSpokenDistracted) {
         _hasSpokenDistracted = true;
         _speakAlert("Alerta de distração. Por favor, mantenha os olhos na pista.");
       }
-      if (elapsedDistracted >= 10) {
+      if (elapsedDistracted >= 4) {
         isDistractedCritical = true;
       }
     }
@@ -473,6 +493,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white),
+            tooltip: "Minimizar Janela (Waze)",
+            onPressed: _isEmergencyMode ? null : () {
+              SimplePip().enterPipMode();
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.settings_phone, color: Colors.white),
             tooltip: "Configurar Número de Emergência",
@@ -669,10 +696,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             children: [
               _buildMetricItem(Icons.av_timer, "Sensor Inercial", "${_gForce.toStringAsFixed(2)} G", Colors.cyan),
               const SizedBox(width: 16),
-              // 👇 AQUI ESTÁ A CORREÇÃO DO GLITCH VISUAL 👇
               _buildMetricItem(Icons.g_mobiledata, "Status", _isMonitoring ? "Processando..." : "Aguardando...",
                   _isMonitoring ? Colors.green : Colors.orange),
-              // 👆 AQUI ESTÁ A CORREÇÃO DO GLITCH VISUAL 👆
             ],
           ),
         ],

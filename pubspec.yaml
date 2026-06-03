@@ -25,8 +25,12 @@ dependencies:
   flutter_ringtone_player: ^4.0.0
   flutter_tts: ^4.0.2
 
-  # Pacote para fazer ligações DIRETAS ignorando o discador
+# Pacote para fazer ligações DIRETAS ignorando o discador
   flutter_phone_direct_caller: ^2.1.1
+
+  # Pacote para rodar em segundo plano (Modo Janela Flutuante)
+  simple_pip_mode: ^1.1.0
+  
 
   # Alerta tátil háptico
   vibration: ^3.1.8
