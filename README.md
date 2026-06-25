@@ -5,8 +5,7 @@
 [![ML Kit](https://img.shields.io/badge/Google-ML_Kit-4285F4?logo=google)](https://developers.google.com/ml-kit)
 [![Status](https://img.shields.io/badge/Status-Protótipo_Acadêmico-success)](#)
 
-> **Trabalho de Conclusão de Curso - Sistemas de Informação (UEMG Passos)**  
-> **Autores:** Amanda Rodrigues Agelune e Thalles José Guilherme da Silva
+> **Trabalho de Conclusão de Curso - Sistemas de Informação (UEMG Passos)** > **Autores:** Amanda Rodrigues Agelune e Thalles José Guilherme da Silva
 
 O **DriverWatch** é um protótipo de aplicativo móvel focado em segurança viária ativa. Ele utiliza a câmera frontal e os sensores inerciais de um smartphone comum para detectar sinais de fadiga, distração e colisões severas em tempo real, operando 100% offline por meio do paradigma de *Edge Computing*.
 
@@ -24,7 +23,7 @@ O **DriverWatch** é um protótipo de aplicativo móvel focado em segurança vi�
 
 ## 📸 Telas do Aplicativo
 
-| Monitoramento Ativo | Alerta de Sonolência | Alerta de Distração | Protocolo SOS |
+| Modo Janela Flutuante | Alerta de Sonolência | Alerta de Distração | Protocolo SOS |
 | :---: | :---: | :---: | :---: |
 | <img src="https://github.com/user-attachments/assets/4fef0d75-23b5-437e-b316-bb888f6f632e" width="200" alt="Monitoramento Ativo"> | <img src="https://github.com/user-attachments/assets/67c7c639-5f5f-4091-bc18-b9f1178496b7" width="200" alt="Alerta de Sonolência"> | <img src="https://github.com/user-attachments/assets/eb5f5b47-c83c-4376-902c-0352e24156ce" width="200" alt="Alerta de Distração"> | <img src="https://github.com/user-attachments/assets/7df2a8b2-4c99-4283-b5f2-829c61a7e484" width="200" alt="Protocolo SOS"> |
 
@@ -44,17 +43,29 @@ O projeto foi construído utilizando uma arquitetura assíncrona orientada a eve
 ## 🚀 Como Executar o Projeto
 
 1. Clone este repositório em sua máquina local:
-   ```bash
-   git clone [https://github.com/SEU_USUARIO/driverwatch.git](https://github.com/SEU_USUARIO/driverwatch.git)
-2.Acesse o diretório do projeto e instale as dependências do Flutter:
 
-Bash
-cd driverwatch
-flutter pub get
+    ```bash
+    git clone [https://github.com/SEU_USUARIO/driverwatch.git](https://github.com/SEU_USUARIO/driverwatch.git)
+    ```
 
-3.Conecte um dispositivo físico Android (com modo de depuração USB ativado).
+2. Acesse a pasta do projeto:
 
-4.Execute o aplicativo:
+    ```bash
+    cd driverwatch
+    ```
 
-Bash
-flutter run
+3. Instale as dependências baixando os pacotes necessários do Flutter:
+
+    ```bash
+    flutter pub get
+    ```
+
+4. Conecte um dispositivo Android físico com o modo Depuração USB habilitado.
+
+    > **Importante:** O DriverWatch utiliza câmera frontal, acelerômetro e recursos nativos do Android. Portanto, os testes devem ser realizados em um dispositivo físico, pois emuladores podem não oferecer suporte completo aos sensores utilizados pelo sistema.
+
+5. Inicie o projeto com o comando:
+
+    ```bash
+    flutter run
+    ```
