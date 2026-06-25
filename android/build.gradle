@@ -10,7 +10,6 @@ subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
 }
 
-// 👇 O SEGREDO DO NAMESPACE FICA AQUI (ANTES DA PRÓXIMA ETAPA) 👇
 subprojects {
     afterEvaluate { project ->
         if (project.hasProperty('android')) {

@@ -30,8 +30,7 @@ class MainActivity: FlutterActivity() {
                         } else {
                             SmsManager.getDefault()
                         }
-                        
-                        // 👇 SOLUÇÃO: Divide a mensagem longa/com emojis em várias partes para o Android não bloquear
+
                         val parts = smsManager.divideMessage(message)
                         smsManager.sendMultipartTextMessage(number, null, parts, null, null)
                         
