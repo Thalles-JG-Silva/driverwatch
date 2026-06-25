@@ -69,3 +69,18 @@ O projeto foi construído utilizando uma arquitetura assíncrona orientada a eve
     ```bash
     flutter run
     ```
+---
+
+## 🔒 Privacidade
+
+O **DriverWatch** opera integralmente sob o conceito de *Edge Computing*:
+* Nenhuma imagem, vídeo ou dado biométrico é enviado para servidores externos ou nuvem.
+* Todo o processamento algorítmico é realizado **localmente** no dispositivo do usuário, garantindo sigilo total das informações durante o trajeto.
+
+---
+
+## 📄 Licença
+
+Projeto acadêmico desenvolvido para fins de pesquisa, estudo e demonstração tecnológica de conclusão de curso.
+
+**© 2026 - DriverWatch**
