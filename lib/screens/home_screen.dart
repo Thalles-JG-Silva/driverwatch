@@ -287,7 +287,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     setState(() {
       _isEmergencyMode = true;
-      _collisionCountdown = 5;
+      _collisionCountdown = 30;
       _statusMessage = "💥 COLISÃO DETECTADA!";
       _statusColor = Colors.red;
     });
@@ -450,7 +450,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _hasSpokenDrowsy = true;
         _speakAlert("Alerta de sono detectado. Pare o veículo em local seguro e descanse imediatamente.");
       }
-      if (elapsedDrowsy >= 3) {
+      if (elapsedDrowsy >= 2) {
         isDrowsyCritical = true;
       }
     }
