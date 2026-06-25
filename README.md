@@ -1,4 +1,4 @@
- <img src="https://github.com/user-attachments/assets/fea1c27c-f8d4-4867-992c-f187215338a5" width="40" align="center" alt="Ícone DriverWatch"> DriverWatch - Sistema de Segurança Veicular (Edge Computing) DriverWatch - Sistema de Segurança Veicular (Edge Computing)
+# <img src="https://github.com/user-attachments/assets/19801c01-9ab6-4b41-bc3e-fb0af4230a96" width="40" align="center" alt="Ícone DriverWatch" /> Sistema de Segurança Veicular (Edge Computing) DriverWatch - Sistema de Segurança Veicular (Edge Computing)
 
 [![Flutter](https://img.shields.io/badge/Flutter-Cross--Platform-02569B?logo=flutter)](https://flutter.dev/)
 [![Android](https://img.shields.io/badge/Android-Native_Bridge-3DDC84?logo=android)](https://developer.android.com/)
