@@ -45,7 +45,7 @@ O projeto foi construído utilizando uma arquitetura assíncrona orientada a eve
 1. Clone este repositório em sua máquina local:
 
     ```bash
-    git clone [https://github.com/SEU_USUARIO/driverwatch.git](https://github.com/SEU_USUARIO/driverwatch.git)
+    git clone https://github.com/SEU_USUARIO/driverwatch.git
     ```
 
 2. Acesse a pasta do projeto:
