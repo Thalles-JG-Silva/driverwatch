@@ -26,6 +26,10 @@ android {
     namespace "com.example.driverwatch" 
     compileSdkVersion 36 
 
+    // 👇 O BLOCO DE CORREÇÃO ESTÁ AQUI 👇
+    buildFeatures {
+        buildConfig true
+    }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -36,7 +40,6 @@ android {
         jvmTarget = '17'
     }
     
-
     defaultConfig {
         applicationId "com.example.driverwatch"
         minSdkVersion 26

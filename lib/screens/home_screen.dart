@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // PACOTE NECESSÁRIO PARA A PONTE NATIVA
+import 'package:flutter/services.dart'; 
 import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart'; 
@@ -13,6 +13,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:vibration/vibration.dart';
 import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
 import 'package:simple_pip_mode/simple_pip.dart';
+import 'package:geolocator/geolocator.dart'; 
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -22,7 +23,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
-  // 👇 CANAL DE COMUNICAÇÃO NATIVA COM O KOTLIN 👇
   static const platform = MethodChannel('com.example.driverwatch/emergency');
 
   CameraController? _cameraController;
@@ -53,9 +53,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   double _gForce = 1.0; 
   bool _isEmergencyMode = false;
-  int _collisionCountdown = 30;
+  int _collisionCountdown = 5;
   Timer? _emergencyTimer;
+  
+  // Configuração de Números
   String _emergencyNumber = "192"; 
+  String _smsContactNumber = ""; 
 
   String _selectedSoundType = "Alarme"; 
   final List<String> _soundOptions = ["Notificação", "Alarme", "Toque"];
@@ -112,19 +115,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _initHardware() async {
-    Map<Permission, PermissionStatus> statuses = await [
+   // Solicita explicitamente SMS e Localização
+    await [
       Permission.camera,
-      Permission.phone, 
+      Permission.phone,
+      Permission.location,
+      Permission.sms,
     ].request();
 
-    if (statuses[Permission.camera]!.isDenied) {
-      setState(() {
-        _statusMessage = "Permissão da câmera negada";
-        _statusColor = Colors.red;
-      });
-      return;
+    if (await Permission.sms.isGranted) {
+      debugPrint("Permissão de SMS concedida");
+    } else {
+      debugPrint("Permissão de SMS NEGADA pelo sistema");
     }
-
     _initAccelerometer();
 
     _cameras = await availableCameras();
@@ -230,7 +233,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _drowsinessColor = Colors.red;
         } else {
           _drowsinessStartTime = null; 
-          _drowsinessStatus = "Olhos Abertos";
+          _drowsinessStatus =   "Olhos Abertos";
           _drowsinessColor = Colors.green;
           _hasSpokenDrowsy = false; 
         }
@@ -276,7 +279,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _triggerCollisionEmergency() {
-    // 👇 GATILHO DA PONTE NATIVA: PUXA O APP PARA A TELA CHEIA 👇
     try {
       platform.invokeMethod('bringToFront');
     } catch (e) {
@@ -285,15 +287,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     setState(() {
       _isEmergencyMode = true;
-      _collisionCountdown = 30;
+      _collisionCountdown = 5;
       _statusMessage = "💥 COLISÃO DETECTADA!";
       _statusColor = Colors.red;
     });
 
     _stopAlarm();
 
-    String numeroFalado = _emergencyNumber.split('').join(' ');
-    _speakAlert("Colisão detectada. Em 30 segundos será realizada a ligação de emergência para o número $numeroFalado.");
+    _speakAlert("Atenção. Colisão detectada. Em 30 segundos, o protocolo de resgate enviará sua localização e ligará para o seu contato de emergência.");
     
     _playSelectedSystemSound();
 
@@ -308,25 +309,63 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           Vibration.vibrate(duration: 500, intensities: [255]);
         } else {
           timer.cancel();
-          _makeEmergencyCall();
+          _triggerRescueProtocol(); 
         }
       });
     });
   }
+// PROTOCOLO DE RESGATE (TELEFONE + SMS SIMULTÂNEOS) 
 
-  Future<void> _makeEmergencyCall() async {
+  Future<void> _triggerRescueProtocol() async {
     _stopAlarm();
     
     setState(() {
-      _statusMessage = "LIGANDO PARA $_emergencyNumber...";
+      _statusMessage = "ACIONANDO RESGATE...";
     });
 
-    bool? callSuccess = await FlutterPhoneDirectCaller.callNumber(_emergencyNumber);
+    String mapLink = "Localização indisponível.";
+    try {
+      Position position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high)
+      );
+      // Link corrigido com a sintaxe exata do Dart e a URL oficial do Google Maps
+      mapLink = "https://maps.google.com/?q=${position.latitude},${position.longitude}";
+    } catch (e) {
+      debugPrint("Erro ao buscar GPS: $e");
+    }
+
+    String smsMessage = "🚨 ALERTA DRIVERWATCH: Colisão severa detectada! O condutor pode estar ferido ou inconsciente. Localização do veículo: $mapLink";
+
+    Future<void> sendSmsTask = Future(() async {
+      if (_smsContactNumber.isNotEmpty) {
+        try {
+          String cleanNumber = _smsContactNumber.replaceAll(RegExp(r'[^0-9+]'), '');
+          
+          await platform.invokeMethod('sendSms', {
+            'number': cleanNumber,
+            'message': smsMessage,
+          });
+          debugPrint("SMS disparado com sucesso via Kotlin!");
+        } catch (e) {
+          debugPrint("Erro ao enviar SMS na ponte nativa: $e");
+        }
+      }
+    });
+
+    Future<bool?> makeCallTask = FlutterPhoneDirectCaller.callNumber(_emergencyNumber);
+
+    List<dynamic> results = await Future.wait([sendSmsTask, makeCallTask]);
+    
+    bool? callSuccess = results[1] as bool?;
 
     if (callSuccess == null || !callSuccess) {
-      _speakAlert("Não foi possível realizar a chamada automaticamente. Verifique as permissões de ligação.");
+      _speakAlert("Falha na rede. Não foi possível realizar a chamada de emergência.");
       setState(() {
         _statusMessage = "FALHA NA LIGAÇÃO!";
+      });
+    } else {
+      setState(() {
+        _statusMessage = "LIGAÇÃO EM ANDAMENTO E SMS ENVIADO!";
       });
     }
   }
@@ -345,23 +384,36 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
-  void _showEmergencyConfigDialog() {
-    TextEditingController controller = TextEditingController(text: _emergencyNumber);
+ void _showEmergencyConfigDialog() {
+    // Usamos a variável _smsContactNumber como base
+    TextEditingController contactController = TextEditingController(text: _smsContactNumber);
+
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
           backgroundColor: const Color(0xFF203A43),
-          title: const Text("Número de Emergência", style: TextStyle(color: Colors.white)),
-          content: TextField(
-            controller: controller,
-            keyboardType: TextInputType.phone,
-            style: const TextStyle(color: Colors.white),
-            decoration: const InputDecoration(
-              hintText: "Ex: 192, 190...",
-              hintStyle: TextStyle(color: Colors.white54),
-              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent)),
-            ),
+          title: const Text("Contato de Emergência", style: TextStyle(color: Colors.white, fontSize: 18)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: contactController,
+                keyboardType: TextInputType.phone,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: "Número do Familiar",
+                  hintText: "Ex: (35) 99999-9999",
+                  labelStyle: TextStyle(color: Colors.blueAccent),
+                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white54)),
+                ),
+              ),
+              const SizedBox(height: 15),
+              const Text(
+                "Este número receberá o SMS com o mapa do GPS e uma ligação automática para chamar a atenção.",
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ],
           ),
           actions: [
             TextButton(
@@ -371,11 +423,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ElevatedButton(
               onPressed: () {
                 setState(() {
-                  _emergencyNumber = controller.text;
+                  // Salva o mesmo número para as duas funções!
+                  _smsContactNumber = contactController.text;
+                  _emergencyNumber = contactController.text; 
                 });
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text("Número atualizado para $_emergencyNumber")),
+                  const SnackBar(content: Text("Contato atualizado com sucesso!")),
                 );
               },
               child: const Text("Salvar"),
@@ -385,7 +439,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       },
     );
   }
-
   void _checkThresholds() {
     bool isDrowsyCritical = false;
     bool isDistractedCritical = false;
@@ -502,7 +555,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
           IconButton(
             icon: const Icon(Icons.settings_phone, color: Colors.white),
-            tooltip: "Configurar Número de Emergência",
+            tooltip: "Configurar Contatos de Emergência",
             onPressed: _isEmergencyMode ? null : _showEmergencyConfigDialog,
           ),
         ],
@@ -733,7 +786,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       child: ElevatedButton.icon(
         onPressed: _cancelEmergency,
         icon: const Icon(Icons.thumb_up, size: 40),
-        label: const Text("ESTOU BEM\nCANCELAR LIGAÇÃO", textAlign: TextAlign.center, style: TextStyle(fontSize: 20)),
+        label: const Text("ESTOU BEM\nCANCELAR PROTOCOLO", textAlign: TextAlign.center, style: TextStyle(fontSize: 20)),
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.green[600],
           foregroundColor: Colors.white,

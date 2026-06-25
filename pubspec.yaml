@@ -25,13 +25,15 @@ dependencies:
   flutter_ringtone_player: ^4.0.0
   flutter_tts: ^4.0.2
 
-# Pacote para fazer ligações DIRETAS ignorando o discador
+  # GPS Localização
+  geolocator: ^13.0.1
+  
+  # Pacote para fazer ligações DIRETAS ignorando o discador
   flutter_phone_direct_caller: ^2.1.1
 
   # Pacote para rodar em segundo plano (Modo Janela Flutuante)
   simple_pip_mode: ^1.1.0
   
-
   # Alerta tátil háptico
   vibration: ^3.1.8
 
@@ -42,6 +44,15 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  # 👇 Pacote para gerar o ícone adicionado aqui
+  flutter_launcher_icons: ^0.13.1
 
 flutter:
   uses-material-design: true
+
+# 👇 Configuração do novo ícone do DriverWatch
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_size: 21
