@@ -1,4 +1,4 @@
-# 🚘 DriverWatch - Sistema de Segurança Veicular (Edge Computing)
+ <img src="https://github.com/user-attachments/assets/77a55747-ea73-4772-8dcb-2e1f201b5612" width="40" align="center" alt="Ícone DriverWatch"> DriverWatch - Sistema de Segurança Veicular (Edge Computing) DriverWatch - Sistema de Segurança Veicular (Edge Computing)
 
 [![Flutter](https://img.shields.io/badge/Flutter-Cross--Platform-02569B?logo=flutter)](https://flutter.dev/)
 [![Android](https://img.shields.io/badge/Android-Native_Bridge-3DDC84?logo=android)](https://developer.android.com/)
