@@ -14,9 +14,9 @@ O **DriverWatch** é um protótipo de aplicativo móvel focado em segurança vi�
 ## ✨ Principais Funcionalidades
 
 * **👁️ Monitoramento de Sonolência:** Calcula a probabilidade de fechamento ocular (EAR - Eye Aspect Ratio) via redes neurais.
-* **👤 Alerta de Distração:** Monitora os ângulos de rotação da cabeça (Yaw e Pitch) para garantir o foco contínuo na via.
+* **👤 Monitoramento de Distração:** Monitora os ângulos de rotação da cabeça (Yaw e Pitch) para garantir o foco contínuo na via.
 * **💥 Detecção de Colisão Inercial:** Analisa os eixos do acelerômetro; impactos severos (> 4.5 G) ativam o protocolo de resgate automaticamente.
-* **🚑 Protocolo SOS Autônomo:** Em caso de colisão, envia um SMS com a localização atual (link do Google Maps) e realiza uma chamada direta para serviços de emergência via integração nativa em Kotlin.
+* **🚑 Protocolo SOS Autônomo:** Em caso de colisão, envia um SMS com a localização atual (link do Google Maps) e realiza uma chamada direta para o contato de emergência via integração nativa em Kotlin.
 * **📱 Modo Janela Flutuante (Picture-in-Picture):** Executa em segundo plano, sobrepondo-se a aplicativos de navegação como Waze ou Google Maps.
 
 ---
